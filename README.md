@@ -12,8 +12,7 @@
 - `airflow/` — DAG-и, ETL-скрипты, Dockerfile и окружение для Airflow
 - `sql/` — DDL и проверочные запросы
 - `data/raw/` — исходные parquet-файлы
-- `docs/schema_report.pdf` — PDF с описанием нормализации, схемой и DDL
-- `docs/schema_notes.md` — тот же отчет в markdown
+- `schema_report.pdf` — PDF с описанием нормализации, схемой и DDL
 - `pgadmin/servers.json` — преднастроенное подключение для pgAdmin
 
 ## Что поднимается в Docker
