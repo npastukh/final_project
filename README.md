@@ -1,111 +1,71 @@
-# Final Delivery Project
+# Final Project
 
-Итоговый проект по нормализации данных доставок и построению аналитической витрины в PostgreSQL с оркестрацией через Airflow и расчетом витрины в PySpark.
+Команда 6
+- Ракутундрамбула Даниелла Александра
+- Пастух Наталья Юрьевна
 
-## Что внутри
+Итоговый проект по курсу: мы взяли исходные parquet-файлы с данными по доставкам, нормализовали их, загрузили в PostgreSQL и собрали итоговую витрину через Airflow и PySpark.
 
-- `docker-compose.yml` для PostgreSQL, pgAdmin и Apache Airflow.
-- `airflow/Dockerfile` с Java, PySpark и библиотеками для ETL.
-- `airflow/dags` с отдельными идемпотентными DAG-ами и DAG-оркестратором.
-- `airflow/scripts` со скриптами загрузки и построения витрины.
-- `sql/10_ddl.sql` с DDL для `stage`, `core` и `mart`.
-- `data/raw` с parquet-файлами, уже включенными в репозиторий.
-- `docs/schema_notes.md` и `docs/schema_report.pdf` с пояснением схемы, нормализации и допущений.
+## Что лежит в проекте
 
-## Архитектура
+- `docker-compose.yml` — запуск всего стенда
+- `airflow/` — DAG-и, ETL-скрипты, Dockerfile и окружение для Airflow
+- `sql/` — DDL и проверочные запросы
+- `data/raw/` — исходные parquet-файлы
+- `docs/schema_report.pdf` — PDF с описанием нормализации, схемой и DDL
+- `docs/schema_notes.md` — тот же отчет в markdown
+- `pgadmin/servers.json` — преднастроенное подключение для pgAdmin
 
-Пайплайн разделен на три отдельных процесса:
+## Что поднимается в Docker
 
-1. `bootstrap_schema` создает схемы и таблицы в PostgreSQL.
-2. `load_core` читает parquet, загружает staging и раскладывает данные в нормализованную модель `core`.
-3. `build_marts` читает `core` через JDBC в PySpark и пишет итоговую витрину в `mart`.
+- `PostgreSQL` — основная база данных
+- `pgAdmin` — чтобы смотреть таблицы и писать проверочные запросы
+- `Apache Airflow` — оркестрация пайплайна
 
-Для автоматического воспроизведения есть DAG `orchestrate_pipeline`, который запускается один раз и последовательно триггерит остальные DAG-и.
-Он настроен как `@once`, поэтому после первого `docker compose up --build` пайплайн стартует автоматически.
-
-## Быстрый старт
+## Быстрый запуск
 
 ```bash
 docker compose up --build
 ```
 
-После старта будут доступны:
+После запуска будут доступны:
 
-- Airflow: `http://localhost:8080`
-- pgAdmin: `http://localhost:5050`
-- PostgreSQL: `localhost:5432`
+- Airflow: `http://localhost:8080` (`admin` / `admin`)
+- pgAdmin: `http://localhost:5050` (`admin@example.com` / `admin`)
+- PostgreSQL: `localhost:5432` (`project_user` / `project_password`)
 
-Учетные данные:
+## Что получилось в базе
 
-- Airflow: `admin` / `admin`
-- pgAdmin: `admin@example.com` / `admin`
-- PostgreSQL: `project_user` / `project_password`
+Используются три схемы:
 
-## Что создается в БД
+- `stage` — сырые данные после загрузки parquet
+- `core` — нормализованная реляционная модель
+- `mart` — итоговая витрина
 
-Схемы:
+Основные таблицы нормализованной модели:
 
-- `stage` для сырой загрузки parquet без потери полей.
-- `core` для нормализованной модели.
-- `mart` для аналитической витрины.
+- `core.dim_city`
+- `core.dim_category`
+- `core.dim_payment_type`
+- `core.dim_cancellation_reason`
+- `core.dim_user`
+- `core.dim_driver`
+- `core.dim_delivery_address`
+- `core.dim_store`
+- `core.dim_product`
+- `core.fct_order`
+- `core.fct_order_driver`
+- `core.fct_order_line`
 
-Основные таблицы `core`:
+Итоговая витрина:
 
-- `dim_city`
-- `dim_category`
-- `dim_payment_type`
-- `dim_cancellation_reason`
-- `dim_user`
-- `dim_driver`
-- `dim_delivery_address`
-- `dim_store`
-- `dim_product`
-- `fct_order`
-- `fct_order_driver`
-- `fct_order_line`
+- `mart.order_metrics_daily` собирается по дате, городу и магазину и содержит:
 
-Витрина:
-
-- `mart.order_metrics_daily`
-
-## Логика расчета метрик
-
-Гранулярность витрины: дата создания заказа `created_at::date`.
-
-Формулы:
-
-- `turnover_amount` = сумма `ordered_quantity * unit_price * (1 - item_discount_pct/100) * (1 - order_discount_pct/100)`
-- `revenue_amount` = сумма `net_quantity * unit_price * (1 - item_discount_pct/100) * (1 - order_discount_pct/100)` только для заказов с ненулевым `paid_at`
-- `net_quantity` = `ordered_quantity - canceled_quantity`
-- `expense_amount` = `delivery_cost` только для заказов, где доставка уже стартовала
-- `profit_amount` = `revenue_amount - expense_amount`
-
-## Почему схема именно такая
-
-Использована 3NF с прагматичным исключением только для итоговой витрины:
-
-- справочные сущности вынесены отдельно, потому что `user_id`, `driver_id`, `store_id`, `item_id` стабильно определяют свои атрибуты
-- `city` вынесен в отдельный справочник, потому что повторяется и в адресе доставки, и в адресе магазина
-- строка заказа хранится отдельно как `fct_order_line`, потому что в одном заказе один и тот же `item_id` встречается несколько раз
-- факт назначения курьера хранится отдельно как `fct_order_driver`, потому что есть заказы со сменой курьера
-
-Подробные комментарии к декомпозиции и допущениям описаны в [docs/schema_notes.md](docs/schema_notes.md).
-
-## Полезные запросы
-
-Примеры лежат в `sql/20_validation_queries.sql`.
-
-## Повторный пересчет
-
-Если нужно заново пересчитать все вручную через Airflow:
-
-1. Открыть Airflow UI.
-2. Запустить `orchestrate_pipeline`.
-3. Дождаться успешного выполнения трех DAG-ов.
-
-Либо можно пересоздать все контейнеры:
-
-```bash
-docker compose down -v
-docker compose up --build
-```
+- количество созданных, доставленных и отмененных заказов
+- оборот, выручку, расходы и прибыль
+- количество покупателей
+- средний чек
+- заказы на покупателя
+- выручку на покупателя
+- количество заказов со сменой курьера
+- количество активных курьеров
